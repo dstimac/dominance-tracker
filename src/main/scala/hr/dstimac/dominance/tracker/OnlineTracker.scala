@@ -4,7 +4,7 @@ package tracker
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 
-import akka.actor.SupervisorStrategy.{Restart, Stop}
+import akka.actor.SupervisorStrategy.{Restart, Resume, Stop}
 import akka.actor.{Actor, OneForOneStrategy, SupervisorStrategy}
 import hr.dstimac.dominance.db.DbConnection
 import hr.dstimac.dominance.reporter.PlayerCache
@@ -58,6 +58,7 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
     OneForOneStrategy(maxNrOfRetries = 10, withinTimeRange = Duration(2, TimeUnit.SECONDS)) {
       case _: TimeoutException => Restart
       case _: ExecutionException => Restart
+      case _: StaleElementReferenceException => Resume
       case _: WebDriverException => Stop
       case _: Exception => Restart
       case _: Throwable => Stop
@@ -100,7 +101,7 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
       driver.findElement(By.xpath(config.loginConf.passwordSelector)).sendKeys(config.loginConf.password)
       buttonLogIn.click()
 
-      Thread.sleep(5000)
+//      Thread.sleep(3000)
 
       if(checkLoggedIn()) logger.debug("Logged in...")
       else login()
@@ -185,6 +186,7 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
       newArrivals.append(Player(name, NewArrival, LocalDateTime.now))
     }
 
+    val players = newArrivals ++ leavers ++ residents ++ offline filterNot (_.name.trim.isEmpty)
     // update cache
     cache.update(mutable.SortedSet.empty[Player] ++ newArrivals ++ leavers ++ residents ++ offline)
 

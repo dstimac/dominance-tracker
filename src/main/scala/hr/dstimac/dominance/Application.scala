@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props}
 import hr.dstimac.dominance.db.DbConnection
-import hr.dstimac.dominance.reporter.{ConsoleReporter, HsqldbReporter, PlayerCache, ReporterActor}
+import hr.dstimac.dominance.reporter.{ConsoleReporter, PlayerCache, ReporterActor}
 import hr.dstimac.dominance.tracker.{ElderTracker, OnlineTracker, Player}
 import org.slf4j.LoggerFactory
 
@@ -39,7 +39,7 @@ object Application extends App {
 
     // init workers
     val system = ActorSystem("dominance-tracker")
-    val reporters = Seq(new ConsoleReporter(playerCache, dbConn), new HsqldbReporter(dbConn, playerCache))
+    val reporters = Seq(new ConsoleReporter(playerCache, dbConn))
     val onlinePlayerTracker =
       system.actorOf(Props(new OnlineTracker(config, playerCache, dbConn)), "onlineTracker")
     val elderTracker =

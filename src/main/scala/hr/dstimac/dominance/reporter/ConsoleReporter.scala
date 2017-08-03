@@ -33,21 +33,31 @@ class ConsoleReporter(val cache: PlayerCache, dbConnection: DbConnection) extend
 
   def report(): Unit = {
     val offlinePlayerManaReportData =
-      dbConnection.findManaReportData().filter{s => s.status == Offline || s.status == Leaver}
+      dbConnection.findManaReportData().filter{s => s.status == Offline}
     val rd = cache.getAll.map{ p =>
       offlinePlayerManaReportData.find(_.name == p.name) match {
         case Some(mrd) =>
-          val ticksOffline = ChronoUnit.MINUTES.between(p.lastChange, mrd.lastOmniUptate) / 30 toInt
-          val manaPerTick = (math.sqrt(mrd.omni) + 10).toInt
-          PlayerReportData(p.name
-            , p.status
-            , p.lastChange
-            , ticksOffline
-            , Some(manaPerTick)
-            , Some(mrd.omni)
-            , Some(manaPerTick * ticksOffline))
+          val ticksOffline = (ChronoUnit.MINUTES.between(p.lastChange, mrd.lastOmniUptate) / 30).toInt
+          if(p.lastChange.isAfter(mrd.lastOmniUptate)) {
+            // ReportData too old or player no longer on /status page, skip it for now
+            PlayerReportData(p.name, p.status, p.lastChange, ticksOffline * -1, None, None, None)
+          } else {
+            val manaPerTick = (math.sqrt(mrd.omni) + 10).toInt
+            PlayerReportData(p.name
+              , p.status
+              , p.lastChange
+              , ticksOffline
+              , Some(manaPerTick)
+              , Some(mrd.omni)
+              , Some(manaPerTick * ticksOffline))
+          }
         case _ =>
-          val ticksOffline = (ChronoUnit.MINUTES.between(p.lastChange, LocalDateTime.now()) / 30).toInt
+          val ticksOffline = p.status match {
+            case Offline | Leaver =>
+              (ChronoUnit.MINUTES.between(p.lastChange, LocalDateTime.now()) / 30).toInt
+            case _ =>
+              0
+          }
           PlayerReportData(p.name, p.status, p.lastChange, ticksOffline, None, None, None)
       }
     }
