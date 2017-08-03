@@ -33,7 +33,7 @@ class DbConnectionTest {
   def insertPlayersTest(): Unit = {
     val p1 = Player("joza", Online, LocalDateTime.now())
     val p2 = Player("marko", Leaver, LocalDateTime.now())
-    dbConn.logPlayerDiff(Seq(p1, p2))
+    dbConn.logPlayerDiff(Set(p1, p2))
 
 
     val players = dbConn.findLastLogsByPlayer()

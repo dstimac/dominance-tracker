@@ -1,10 +1,11 @@
 package hr.dstimac
 
-import java.util.concurrent.Executors
+import java.util.concurrent.{Executors, TimeUnit}
 
 import hr.dstimac.dominance.tracker.Player
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
+import akka.util.Timeout
 
 package object dominance {
 
@@ -17,4 +18,5 @@ package object dominance {
     }
   }
 
+  implicit val actorTimeout: Timeout = new Timeout(2, TimeUnit.SECONDS)
 }

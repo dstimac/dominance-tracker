@@ -84,7 +84,6 @@ class DbConnection(config: ApplicationConfig) {
   }
 
   private def setupElderLog(): Unit = {
-    logger.info("Creating table 'elder_log'.")
     val st = conn.createStatement()
     val qry = """SELECT *
                 |FROM INFORMATION_SCHEMA.TABLES
@@ -96,6 +95,7 @@ class DbConnection(config: ApplicationConfig) {
     st.close()
 
     if(!hasTableOmniLog) {
+      logger.info("Creating table 'elder_log'.")
       val st = conn.createStatement()
       val qry =
         """CREATE TABLE elder_log
@@ -109,7 +109,7 @@ class DbConnection(config: ApplicationConfig) {
     }
   }
 
-  def logElderStatus(elders: Seq[ElderInfo]): Unit = {
+  def logElderStatus(elders: Set[ElderInfo]): Unit = {
     if(elders.nonEmpty) {
       val qry = """INSERT INTO elder_log(name, omni, dominion_size, created_at) VALUES (?, ?, ?, ?)"""
       val st = conn.prepareStatement(qry)
@@ -126,7 +126,7 @@ class DbConnection(config: ApplicationConfig) {
     }
   }
 
-  def logPlayerDiff(players: Seq[Player]): Unit = {
+  def logPlayerDiff(players: Set[Player]): Unit = {
     if(players.nonEmpty) {
       val qry = """INSERT INTO player_log(name, status, created_at) VALUES (?, ?, ?)"""
       val st = conn.prepareStatement(qry)
@@ -148,7 +148,7 @@ class DbConnection(config: ApplicationConfig) {
     }
   }
 
-  def findLastLogsByElder(): Seq[ElderInfo] = {
+  def findLastLogsByElder(): Set[ElderInfo] = {
     val qry = """SELECT DISTINCT e.*
                 |FROM elder_log e INNER JOIN
                 |    (SELECT name, MAX(created_at) as max_time
@@ -172,10 +172,10 @@ class DbConnection(config: ApplicationConfig) {
     rs.close()
     st.close()
 
-    lastLogs
+    lastLogs.toSet
   }
 
-  def findLastLogsByPlayer(): Seq[Player] = {
+  def findLastLogsByPlayer(): Set[Player] = {
     val qry = """SELECT DISTINCT p. *
                 |FROM player_log p INNER JOIN
                 |    (SELECT name, MAX(created_at) as max_time
@@ -199,10 +199,10 @@ class DbConnection(config: ApplicationConfig) {
     rs.close()
     st.close()
 
-    lastLogs
+    lastLogs.toSet
   }
 
-  def findManaReportData(): Seq[PlayerStatusOmniData] = {
+  def findManaReportData(): Set[PlayerStatusOmniData] = {
     val qry = """SELECT DISTINCT
                 |  p.name
                 |  , p.status
@@ -250,7 +250,7 @@ class DbConnection(config: ApplicationConfig) {
     rs.close()
     st.close()
 
-    lastLogs
+    lastLogs.toSet
   }
 }
 

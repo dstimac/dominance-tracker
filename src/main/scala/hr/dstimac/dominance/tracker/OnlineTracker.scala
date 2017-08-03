@@ -5,9 +5,9 @@ import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 
 import akka.actor.SupervisorStrategy.{Restart, Resume, Stop}
-import akka.actor.{Actor, OneForOneStrategy, SupervisorStrategy}
-import hr.dstimac.dominance.db.DbConnection
-import hr.dstimac.dominance.reporter.PlayerCache
+import akka.actor.{Actor, ActorRef, OneForOneStrategy, SupervisorStrategy}
+import akka.pattern.ask
+import hr.dstimac.dominance.db.{GetAll, LogPlayerDiff, UpdatePlayers}
 import org.openqa.selenium._
 import org.openqa.selenium.firefox.FirefoxDriver
 import org.openqa.selenium.remote.RemoteWebDriver
@@ -19,12 +19,11 @@ import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import scala.concurrent.ExecutionException
 import scala.concurrent.duration.Duration
 
 case class Player(name: String, status: PlayerStatus, lastChange: LocalDateTime)
 
-class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection: DbConnection) extends Actor {
+class OnlineTracker(config: ApplicationConfig, playerCache: ActorRef, dbActor: ActorRef) extends Actor {
 
   private val logger = LoggerFactory.getLogger(classOf[OnlineTracker])
 
@@ -44,8 +43,8 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
     try {
       driver.quit()
     } catch {
-      case _: Exception =>
-//        logger.error("Exception while trying to cleanup: ", x)
+      case x: Exception =>
+        logger.error("Exception while trying to cleanup: ", x)
     }
   }
 
@@ -53,17 +52,14 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
     driver = new FirefoxDriver()
   }
 
-  // todo supervisor strategy
   override def supervisorStrategy: SupervisorStrategy =
     OneForOneStrategy(maxNrOfRetries = 10, withinTimeRange = Duration(2, TimeUnit.SECONDS)) {
-      case _: TimeoutException => Restart
-      case _: ExecutionException => Restart
-      case _: StaleElementReferenceException => Resume
-      case _: WebDriverException => Stop
+      case x: StaleElementReferenceException =>
+        logger.warn("Caught exception, trying to resume: ", x)
+        Resume
       case _: Exception => Restart
       case _: Throwable => Stop
     }
-
 
   override def receive: Receive = {
     case "start" =>
@@ -160,39 +156,40 @@ class OnlineTracker(config: ApplicationConfig, cache: PlayerCache, dbConnection:
     val offline: mutable.Buffer[Player] = new ListBuffer[Player]
 
     // Sort out known players, update status, lastChange
-    cache.getAll.foreach { p =>
-      if(onlinePlayers.contains(p.name)) {
-        p.status match {
-          case Offline =>
-            residents.append(p.copy(lastChange = LocalDateTime.now(), status = NewArrival))
-          case Leaver =>
-            residents.append(p.copy(lastChange = LocalDateTime.now(), status = NewArrival))
-          case Online =>
-            residents.append(p)
-          case NewArrival =>
-            residents.append(p.copy(status = Online))
+    val cacheResultFuture = (playerCache ? GetAll).mapTo[Set[Player]]
+    cacheResultFuture.map { cache =>
+      cache.foreach { p =>
+        if (onlinePlayers.contains(p.name)) {
+          p.status match {
+            case Offline =>
+              residents.append(p.copy(lastChange = LocalDateTime.now(), status = NewArrival))
+            case Leaver =>
+              residents.append(p.copy(lastChange = LocalDateTime.now(), status = NewArrival))
+            case Online =>
+              residents.append(p)
+            case NewArrival =>
+              residents.append(p.copy(status = Online))
+          }
         }
-      }
-      else {
-        if(p.status == Online || p.status == NewArrival)
-          leavers.append(p.copy(lastChange = LocalDateTime.now(), status = Leaver))
-        else
-          offline.append(p.copy(status = Offline))
+        else {
+          if (p.status == Online || p.status == NewArrival)
+            leavers.append(p.copy(lastChange = LocalDateTime.now(), status = Leaver))
+          else
+            offline.append(p.copy(status = Offline))
+        }
+
+        // Sort out new arrivals (unknown players)
+        onlinePlayers.filterNot { p => cache.exists(c => c.name == p) }.foreach { name =>
+          newArrivals.append(Player(name, NewArrival, LocalDateTime.now))
+        }
+
+        val players = newArrivals ++ leavers ++ residents ++ offline filterNot (_.name.trim.isEmpty)
+        // update cache
+        playerCache ! UpdatePlayers(players.toSet)
+
+        logger.trace("FOUND PLAYERS: {}", cache)
+        dbActor ! LogPlayerDiff(cache)
       }
     }
-
-    // Sort out new arrivals (unknown players)
-    onlinePlayers.filterNot{ p => cache.getAll.exists(c => c.name == p)}.foreach { name =>
-      newArrivals.append(Player(name, NewArrival, LocalDateTime.now))
-    }
-
-    val players = newArrivals ++ leavers ++ residents ++ offline filterNot (_.name.trim.isEmpty)
-    // update cache
-    cache.update(mutable.SortedSet.empty[Player] ++ newArrivals ++ leavers ++ residents ++ offline)
-
-    logger.trace("FOUND PLAYERS: {}", cache.getAll)
-    dbConnection.logPlayerDiff(cache.getDiff.toSeq)
-
-//    reporters foreach (_.report())
-  }
+ }
 }

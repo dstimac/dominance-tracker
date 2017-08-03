@@ -3,13 +3,12 @@ package hr.dstimac.dominance
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props}
-import hr.dstimac.dominance.db.DbConnection
-import hr.dstimac.dominance.reporter.{ConsoleReporter, PlayerCache, ReporterActor}
-import hr.dstimac.dominance.tracker.{ElderTracker, OnlineTracker, Player}
+import akka.actor.{ActorRef, ActorSystem, Cancellable, PoisonPill, Props}
+import hr.dstimac.dominance.db.{DbActor, PlayerCache}
+import hr.dstimac.dominance.reporter.{ConsoleReporter, ReporterActor}
+import hr.dstimac.dominance.tracker.{ElderTracker, OnlineTracker}
 import org.slf4j.LoggerFactory
 
-import scala.collection.mutable
 import scala.concurrent.duration.Duration
 
 object Application extends App {
@@ -23,7 +22,7 @@ object Application extends App {
     // fetch config
     val config = sys.props.get("app.conf") match {
       case Some(path) =>
-        logger.debug("Loading config from path: {}", path)
+        logger.info("Loading config from path: {}", path)
         ApplicationConfig(path)
       case _ =>
         val conf = ApplicationConfig.apply()
@@ -32,55 +31,56 @@ object Application extends App {
     }
     sys.props("webdriver.gecko.driver") = config.geckoDriverLocation
 
-    // init dependencies
-    val playerCache = new PlayerCache
-    val dbConn = DbConnection(config)
-    initPlayerCache(playerCache, dbConn)
-
     // init workers
     val system = ActorSystem("dominance-tracker")
-    val reporters = Seq(new ConsoleReporter(playerCache, dbConn))
+    val dbActor = system.actorOf(Props(new DbActor(config)), "dbActor")
+    val cacheActor = system.actorOf(Props(new PlayerCache(dbActor)), "playerCache")
+
+//    initPlayerCache(dbActor, cacheActor)
+
+    val reporters = Seq(new ConsoleReporter(cacheActor, dbActor))
     val onlinePlayerTracker =
-      system.actorOf(Props(new OnlineTracker(config, playerCache, dbConn)), "onlineTracker")
+      system.actorOf(Props(new OnlineTracker(config, cacheActor, dbActor)), "onlineTracker")
     val elderTracker =
-      system.actorOf(Props(new ElderTracker(config, dbConn)), "elderTracker")
+      system.actorOf(Props(new ElderTracker(config, dbActor)), "elderTracker")
     val reporterActor =
       system.actorOf(Props(new ReporterActor(reporters)), "reporterActor")
     onlinePlayerTracker ! "start"
 
-    attachShutdownHook(Seq(onlinePlayerTracker, elderTracker, reporterActor), dbConn)
-
     // start workers
-    system.scheduler.schedule(
+    logger.debug("Starting workers...")
+    val onlinePresenceScheduler = system.scheduler.schedule(
       Duration(10, TimeUnit.SECONDS)
       , Duration(config.resources.timeout, TimeUnit.MILLISECONDS)
       , onlinePlayerTracker
       , "log-presence"
     )
-    system.scheduler.schedule(
+    val elderTrackerScheduler = system.scheduler.schedule(
       Duration(0, TimeUnit.SECONDS)
       , Duration(30, TimeUnit.SECONDS)
       , elderTracker
       , "log-elder"
     )
-    system.scheduler.schedule(
+    val reporterScheduler = system.scheduler.schedule(
       Duration(0, TimeUnit.SECONDS)
       , Duration(10, TimeUnit.SECONDS)
       , reporterActor
       , "report"
     )
+
+    logger.debug("Attaching shutdown hooks")
+    attachShutdownHook(
+      Seq(onlinePresenceScheduler, elderTrackerScheduler, reporterScheduler)
+      , Seq(onlinePlayerTracker, elderTracker, reporterActor, cacheActor, dbActor)
+    )
   }
 
-  private def initPlayerCache(cache: PlayerCache, dbConnection: DbConnection): Unit = {
-    cache.update(mutable.SortedSet.empty[Player] ++ dbConnection.findLastLogsByPlayer())
-  }
-
-  private def attachShutdownHook(actors: Seq[ActorRef], dbConn: DbConnection): Unit = {
+  private def attachShutdownHook(schedulers: Seq[Cancellable], actors: Seq[ActorRef]): Unit = {
     Runtime.getRuntime.addShutdownHook(new Thread {
       override def run(): Unit = {
         logger.info("Shutting down")
-        dbConn.stopDb()
-        actors.foreach{ a=> a ! PoisonPill}
+        schedulers.foreach{s => s.cancel()}
+        actors.foreach{ a => a ! PoisonPill}
       }
     })
   }
