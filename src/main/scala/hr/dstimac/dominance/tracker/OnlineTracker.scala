@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit
 import akka.actor.SupervisorStrategy.{Restart, Resume, Stop}
 import akka.actor.{Actor, ActorRef, OneForOneStrategy, SupervisorStrategy}
 import akka.pattern.ask
-import hr.dstimac.dominance.db.{GetAll, LogPlayerDiff, UpdatePlayers}
+import hr.dstimac.dominance.db.{GetAll, GetDiff, LogPlayerDiff, UpdatePlayers}
 import org.openqa.selenium._
 import org.openqa.selenium.firefox.FirefoxDriver
 import org.openqa.selenium.remote.RemoteWebDriver
@@ -178,17 +178,18 @@ class OnlineTracker(config: ApplicationConfig, playerCache: ActorRef, dbActor: A
             offline.append(p.copy(status = Offline))
         }
 
-        // Sort out new arrivals (unknown players)
-        onlinePlayers.filterNot { p => cache.exists(c => c.name == p) }.foreach { name =>
-          newArrivals.append(Player(name, NewArrival, LocalDateTime.now))
-        }
+      }
+      // Sort out new arrivals (unknown players)
+      onlinePlayers.filterNot { p => cache.exists(c => c.name == p) }.foreach { name =>
+        newArrivals.append(Player(name, NewArrival, LocalDateTime.now))
+      }
 
-        val players = newArrivals ++ leavers ++ residents ++ offline filterNot (_.name.trim.isEmpty)
-        // update cache
-        playerCache ! UpdatePlayers(players.toSet)
-
-        logger.trace("FOUND PLAYERS: {}", cache)
-        dbActor ! LogPlayerDiff(cache)
+      val players = newArrivals ++ leavers ++ residents ++ offline filterNot (_.name.trim.isEmpty)
+      // update cache
+      playerCache ! UpdatePlayers(players.toSet)
+      logger.debug("FOUND PLAYERS: {}", cache)
+      (playerCache ? GetDiff).mapTo[Set[Player]] map { diffPlayers =>
+        dbActor ! LogPlayerDiff(diffPlayers)
       }
     }
  }

@@ -19,23 +19,30 @@ case class PlayerStatusOmniData(name: String
   , dominionSize: Int
   , lastOmniUptate: LocalDateTime
 )
-class DbConnection(config: ApplicationConfig) {
+trait DbConnection {
+  private[db] def init(): Unit
+  def stopDb(): Unit
+  def logElderStatus(elders: Set[ElderInfo]): Unit
+  def logPlayerDiff(players: Set[Player]): Unit
+  def findLastLogsByElder(): Set[ElderInfo]
+  def findLastLogsByPlayer(): Set[Player]
+  def findManaReportData(): Set[PlayerStatusOmniData]
+}
+class HsqlDbConnection(config: ApplicationConfig) extends DbConnection{
 
-  private val logger: Logger = LoggerFactory.getLogger(classOf[DbConnection])
+  private val logger: Logger = LoggerFactory.getLogger(classOf[HsqlDbConnection])
   private var server: Option[Server] = None
   private var conn: Connection = _
-
-  def connection(): Connection = conn
 
   def stopDb(): Unit = {
     server.map(_.stop())
   }
 
-  protected def init(): Unit = {
+  private[db] def init(): Unit = {
     if(config.db.serverInApp) {
       val p = new HsqlProperties()
 
-      p.setProperty("server.database.0", "file:" + config.db.path)
+      p.setProperty("server.database.0", "file:" + config.db.uri)
       p.setProperty("server.dbname.0", "onliner")
       p.setProperty("server.port", "9001")
 
@@ -256,7 +263,11 @@ class DbConnection(config: ApplicationConfig) {
 
 object DbConnection {
   def apply(config: ApplicationConfig): DbConnection = {
-    val dbc = new DbConnection(config)
+    val dbc = config.db.databaseServerType match {
+      //case "hsqldb" => new HsqlDbConnection(config)
+      case "postgres" => new PostgresDbConnection(config)
+      case _ => new HsqlDbConnection(config)
+    }
     dbc.init()
     dbc
   }

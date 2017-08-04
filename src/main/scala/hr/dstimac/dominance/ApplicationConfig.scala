@@ -3,6 +3,7 @@ package hr.dstimac.dominance
 import java.io.File
 
 import com.typesafe.config.{Config, ConfigFactory}
+import org.slf4j.{Logger, LoggerFactory}
 
 case class LoginConf(
   username: String
@@ -20,15 +21,30 @@ case class Resources(
  , statusPageURL: String
  , eldersSelector: String
 )
-case class Db(path: String, serverInApp: Boolean)
+case class Db(
+  uri: String
+  , serverInApp: Boolean
+  , databaseServerType: String
+  , username: String
+  , password: String
+ )
 class ApplicationConfig(config: Config) {
 
-  lazy val conf: Config = config
-  lazy val onlinerConf: Config = conf.getConfig("dominance-tracker")
+  private val logger: Logger = LoggerFactory.getLogger(classOf[ApplicationConfig])
+
+  lazy val conf: Config = {
+    logger.trace("CONFIG: {}", config)
+    config
+  }
+  lazy val trackerConfig: Config = {
+    val c = conf.getConfig("dominance-tracker")
+    logger.debug("Dominance tracker CONFIG: {}", c)
+    c
+  }
 
 
   val geckoDriverLocation: String = {
-    onlinerConf.getString("web-driver-location") match {
+    trackerConfig.getString("web-driver-location") match {
       case "" =>
         // Default location
         sys.props("java.io.tmpdir") + "/dominance/geckodriver"
@@ -37,27 +53,44 @@ class ApplicationConfig(config: Config) {
   }
 
   def loginConf: LoginConf =
-    LoginConf(onlinerConf.getString("login.username")
-      , onlinerConf.getString("login.password")
-      , onlinerConf.getString("login.username-input-selector")
-      , onlinerConf.getString("login.password-input-selector")
-      , onlinerConf.getString("login.button-login-id")
-      , onlinerConf.getString("login.check-loggedin-selector")
+    LoginConf(trackerConfig.getString("login.username")
+      , trackerConfig.getString("login.password")
+      , trackerConfig.getString("login.username-input-selector")
+      , trackerConfig.getString("login.password-input-selector")
+      , trackerConfig.getString("login.button-login-id")
+      , trackerConfig.getString("login.check-loggedin-selector")
     )
 
   def resources: Resources = {
     Resources(
-      onlinerConf.getString("resources.client-url")
-      , onlinerConf.getLong("resources.online-players-refresh-timeout")
-      , onlinerConf.getString("resources.online-players-selector")
-      , onlinerConf.getString("resources.error-forms")
-      , onlinerConf.getString("resources.dominance-status-page")
-      , onlinerConf.getString("resources.elder-elements-selector")
+      trackerConfig.getString("resources.client-url")
+      , trackerConfig.getLong("resources.online-players-refresh-timeout")
+      , trackerConfig.getString("resources.online-players-selector")
+      , trackerConfig.getString("resources.error-forms")
+      , trackerConfig.getString("resources.dominance-status-page")
+      , trackerConfig.getString("resources.elder-elements-selector")
     )
   }
 
   def db: Db = {
-    Db(onlinerConf.getString("db.path"), onlinerConf.getBoolean("db.server-mode-in-app"))
+    trackerConfig.getString("db.database-server-type") match {
+      case x if x.nonEmpty =>
+        Db(
+          trackerConfig.getString("db.uri")
+          , trackerConfig.getBoolean("db.server-mode-in-app")
+          , x
+          , trackerConfig.getString("db.username")
+          , trackerConfig.getString("db.password")
+        )
+      case _ =>
+        Db(
+          trackerConfig.getString("db.uri")
+          , trackerConfig.getBoolean("db.server-mode-in-app")
+          , "hsqldb"
+          , trackerConfig.getString("db.username")
+          , trackerConfig.getString("db.password")
+        )
+    }
   }
 }
 

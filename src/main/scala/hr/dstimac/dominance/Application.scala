@@ -1,15 +1,10 @@
 package hr.dstimac.dominance
 
-
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorRef, ActorSystem, Cancellable, PoisonPill, Props}
-import hr.dstimac.dominance.db.{DbActor, PlayerCache}
-import hr.dstimac.dominance.reporter.{ConsoleReporter, ReporterActor}
-import hr.dstimac.dominance.tracker.{ElderTracker, OnlineTracker}
+import akka.pattern.ask
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.duration.Duration
+import scala.util.{Failure, Success}
 
 object Application extends App {
 
@@ -31,47 +26,29 @@ object Application extends App {
     }
     sys.props("webdriver.gecko.driver") = config.geckoDriverLocation
 
-    // init workers
+    // init app actor
     val system = ActorSystem("dominance-tracker")
-    val dbActor = system.actorOf(Props(new DbActor(config)), "dbActor")
-    val cacheActor = system.actorOf(Props(new PlayerCache(dbActor)), "playerCache")
+    val applicationActor = system.actorOf(Props(new ApplicationActor(config)), "applicationActor")
 
-//    initPlayerCache(dbActor, cacheActor)
-
-    val reporters = Seq(new ConsoleReporter(cacheActor, dbActor))
-    val onlinePlayerTracker =
-      system.actorOf(Props(new OnlineTracker(config, cacheActor, dbActor)), "onlineTracker")
-    val elderTracker =
-      system.actorOf(Props(new ElderTracker(config, dbActor)), "elderTracker")
-    val reporterActor =
-      system.actorOf(Props(new ReporterActor(reporters)), "reporterActor")
-    onlinePlayerTracker ! "start"
-
-    // start workers
-    logger.debug("Starting workers...")
-    val onlinePresenceScheduler = system.scheduler.schedule(
-      Duration(10, TimeUnit.SECONDS)
-      , Duration(config.resources.timeout, TimeUnit.MILLISECONDS)
-      , onlinePlayerTracker
-      , "log-presence"
-    )
-    val elderTrackerScheduler = system.scheduler.schedule(
-      Duration(0, TimeUnit.SECONDS)
-      , Duration(30, TimeUnit.SECONDS)
-      , elderTracker
-      , "log-elder"
-    )
-    val reporterScheduler = system.scheduler.schedule(
-      Duration(0, TimeUnit.SECONDS)
-      , Duration(10, TimeUnit.SECONDS)
-      , reporterActor
-      , "report"
-    )
+    val startFuture = (applicationActor ? "start").mapTo[String]
+    startFuture.onComplete{
+      case Success("failed") =>
+        logger.warn("ApplicationActor not started, exiting.")
+        sys.exit(-1)
+      case Success("started") =>
+        logger.info("ApplicationActor started")
+        applicationActor ! "run"
+      case Success(x) =>
+        logger.warn("Unknown response from ApplicationActor: '{}'", x)
+      case Failure(t) =>
+        applicationActor ! "stop"
+        logger.warn("Application not started: ", t)
+    }
 
     logger.debug("Attaching shutdown hooks")
     attachShutdownHook(
-      Seq(onlinePresenceScheduler, elderTrackerScheduler, reporterScheduler)
-      , Seq(onlinePlayerTracker, elderTracker, reporterActor, cacheActor, dbActor)
+      Seq()
+      , Seq(applicationActor)
     )
   }
 

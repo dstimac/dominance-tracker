@@ -3,11 +3,10 @@ package db
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.SupervisorStrategy.{Restart, Resume, Stop}
+import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor.{Actor, ActorRef, OneForOneStrategy, SupervisorStrategy}
 import akka.pattern.{AskTimeoutException, ask}
 import hr.dstimac.dominance.tracker.Player
-import org.openqa.selenium.StaleElementReferenceException
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.duration.Duration

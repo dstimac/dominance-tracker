@@ -6,28 +6,10 @@ import hr.dstimac.dominance.db.DbConnection
 import hr.dstimac.dominance.tracker.{Leaver, Online, Player}
 import org.junit.Test
 
-class DbConnectionTest {
+class HsqlDbConnectionTest {
 
   lazy val cfg: ApplicationConfig = ApplicationConfig.apply()
   var dbConn: DbConnection = DbConnection(cfg)
-
-
-  @Test
-  def testDbLocation(): Unit = {
-    val c = dbConn.connection()
-    val st = c.createStatement()
-    val qry = "SELECT * FROM player_log LIMIT 1"
-    val rs = st.executeQuery(qry)
-
-    while(rs.next()) {
-      val name = rs.getString("name")
-      val status = rs.getString("status")
-      val ts = rs.getTimestamp("created_at")
-      println(s" player = ($name, $status, ${ts.toLocalDateTime})")
-    }
-
-    st.close()
-  }
 
   @Test
   def insertPlayersTest(): Unit = {

@@ -14,6 +14,7 @@ libraryDependencies ++= Seq(
   , "org.jsoup" % "jsoup" % "1.10.3"
 
   , "org.hsqldb" % "hsqldb" % "2.4.0"
+  , "org.postgresql" % "postgresql" % "42.1.3"
 
   , "ch.qos.logback" % "logback-classic" % "1.2.3"
 
