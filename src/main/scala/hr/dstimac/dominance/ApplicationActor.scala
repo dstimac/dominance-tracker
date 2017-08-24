@@ -2,12 +2,13 @@ package hr.dstimac.dominance
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.SupervisorStrategy.Stop
+import akka.actor.SupervisorStrategy.{Resume, Stop}
 import akka.actor.{Actor, ActorRef, Cancellable, OneForOneStrategy, Props, SupervisorStrategy}
 import akka.pattern.ask
 import hr.dstimac.dominance.db.{DbActor, PlayerCache}
 import hr.dstimac.dominance.reporter.{ConsoleReporter, ReporterActor}
 import hr.dstimac.dominance.tracker.{ElderTracker, OnlineTracker}
+import org.openqa.selenium.StaleElementReferenceException
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.Await
@@ -30,7 +31,13 @@ class ApplicationActor(config: ApplicationConfig) extends Actor {
 
   override def supervisorStrategy: SupervisorStrategy =
     OneForOneStrategy(maxNrOfRetries = 10, withinTimeRange = Duration(2, TimeUnit.SECONDS)) {
+      case _: StaleElementReferenceException => Resume
       case _: Throwable  => Stop
+  }
+
+  override def postRestart(reason: Throwable): Unit = {
+    super.postRestart(reason)
+    logger.warn("Restarted, Reason: ", reason)
   }
 
   def started: Receive = {

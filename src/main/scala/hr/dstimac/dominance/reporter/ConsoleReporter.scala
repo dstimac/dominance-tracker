@@ -32,13 +32,14 @@ class ConsoleReporter(cache: ActorRef, dbActor: ActorRef) extends Reporter {
   protected val timeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM HH:mm:ss")
 
   def report(): Unit = {
-    val reportDataFuture = (dbActor ? FindManaReportData).mapTo[Set[PlayerStatusOmniData]] flatMap { offlinePlayerManaReportData  =>
+    val reportDataFuture = (dbActor ? FindManaReportData).mapTo[Set[PlayerStatusOmniData]] flatMap { manaReportData  =>
+      val offlinePlayerManaReportData = manaReportData.filter(_.status == Offline)
       (cache ? GetAll).mapTo[Set[Player]] map { cache =>
         cache.map{p =>
             offlinePlayerManaReportData.find(_.name == p.name) match {
               case Some(mrd) =>
                 val ticksOffline = (ChronoUnit.MINUTES.between(p.lastChange, mrd.lastOmniUptate) / 30).toInt
-                if(p.lastChange.isAfter(mrd.lastOmniUptate)) {
+                if(ticksOffline < -30) {
                   // ReportData too old or player no longer on /status page, skip it for now
                   PlayerReportData(p.name, p.status, p.lastChange, ticksOffline * -1, None, None, None)
                 } else {
@@ -46,10 +47,10 @@ class ConsoleReporter(cache: ActorRef, dbActor: ActorRef) extends Reporter {
                   PlayerReportData(p.name
                     , p.status
                     , p.lastChange
-                    , ticksOffline
+                    , math.abs(ticksOffline)
                     , Some(manaPerTick)
                     , Some(mrd.omni)
-                    , Some(manaPerTick * ticksOffline))
+                    , Some(manaPerTick * math.abs(ticksOffline)))
                 }
               case _ =>
                 val ticksOffline = p.status match {
